@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      - DATA_DIR=/app/data/conversations
+      - OLLAMA_API_URL=${OLLAMA_API_URL:-}
+    volumes:
+      - data:/app/data/conversations
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8001:8001"
+    command: uv run python -m backend.main
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: http://localhost:8001
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  data:

@@ -8,16 +8,32 @@ from typing import List, Dict, Any
 import uuid
 import json
 import asyncio
+import os
+import stat
 
 from . import storage
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
+from .config import OLLAMA_API_URL, CORS_ALLOW_ORIGINS
+
+
+def has_docker_socket_access(socket_path: str = "/var/run/docker.sock") -> bool:
+    """Return True if the process can read/write the host docker socket."""
+    try:
+        st = os.stat(socket_path)
+    except FileNotFoundError:
+        return False
+    mode = st.st_mode
+    can_read = os.access(socket_path, os.R_OK)
+    can_write = os.access(socket_path, os.W_OK)
+    is_sock = stat.S_ISSOCK(mode)
+    return is_sock and can_read and can_write
 
 app = FastAPI(title="LLM Council API")
 
 # Enable CORS for local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=CORS_ALLOW_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,7 +69,12 @@ class Conversation(BaseModel):
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"status": "ok", "service": "LLM Council API"}
+    return {
+        "status": "ok",
+        "service": "LLM Council API",
+        "ollama_api_url": OLLAMA_API_URL,
+        "docker_socket_access": has_docker_socket_access(),
+    }
 
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])

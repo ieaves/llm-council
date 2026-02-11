@@ -8,6 +8,7 @@ from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
 async def stage1_collect_responses(
     user_query: str,
     council_models: List[str] | None = None,
+    conversation_history: str | None = None,
     on_progress=None,
 ) -> List[Dict[str, Any]]:
     """
@@ -20,7 +21,20 @@ async def stage1_collect_responses(
     Returns:
         List of dicts with 'model' and 'response' keys
     """
-    messages = [{"role": "user", "content": user_query}]
+    if conversation_history:
+        prompt = f"""You are a council member continuing an ongoing conversation.
+
+Conversation so far:
+{conversation_history}
+
+User's latest message:
+{user_query}
+
+Provide your response to the latest message, taking prior context into account."""
+    else:
+        prompt = user_query
+
+    messages = [{"role": "user", "content": prompt}]
 
     models = council_models or COUNCIL_MODELS
 
@@ -128,6 +142,7 @@ async def stage3_synthesize_final(
     stage1_results: List[Dict[str, Any]],
     stage2_results: List[Dict[str, Any]],
     chairman_model: str | None = None,
+    conversation_history: str | None = None,
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -151,9 +166,12 @@ async def stage3_synthesize_final(
         for result in stage2_results
     ])
 
+    history_text = f"\n\nConversation history:\n{conversation_history}" if conversation_history else ""
+
     chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
 
 Original Question: {user_query}
+{history_text}
 
 STAGE 1 - Individual Responses:
 {stage1_text}
@@ -311,6 +329,7 @@ async def run_full_council(
     user_query: str,
     council_models: List[str] | None = None,
     chairman_model: str | None = None,
+    conversation_history: str | None = None,
 ) -> Tuple[List, List, Dict, Dict]:
     """
     Run the complete 3-stage council process.
@@ -325,7 +344,11 @@ async def run_full_council(
     models = council_models or COUNCIL_MODELS
     chairman = chairman_model or CHAIRMAN_MODEL
 
-    stage1_results = await stage1_collect_responses(user_query, models)
+    stage1_results = await stage1_collect_responses(
+        user_query,
+        models,
+        conversation_history=conversation_history,
+    )
 
     # If no models responded successfully, return error
     if not stage1_results:
@@ -345,7 +368,8 @@ async def run_full_council(
         user_query,
         stage1_results,
         stage2_results,
-        chairman_model=chairman
+        chairman_model=chairman,
+        conversation_history=conversation_history,
     )
 
     # Prepare metadata

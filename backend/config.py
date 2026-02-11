@@ -28,7 +28,7 @@ OLLAMA_API_URL = os.getenv("OLLAMA_API_URL")
 COUNCIL_MODELS = _get_env_list(
     "COUNCIL_MODELS",
     [
-        "openai/gpt-5.1",
+        "openai/gpt-5.2",
         "google/gemini-3-pro-preview",
         "anthropic/claude-sonnet-4.5",
         "x-ai/grok-4",
@@ -42,12 +42,16 @@ CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL", "google/gemini-3-pro-preview")
 DATA_DIR = os.getenv("DATA_DIR", "data/conversations")
 
 # CORS origins for the API (comma-separated)
-CORS_ALLOW_ORIGINS = _get_env_list(
-    "CORS_ALLOW_ORIGINS",
-    [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
-)
+_DEFAULT_CORS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# Special-case "*" to allow all origins (useful in Docker/preview setups)
+raw_cors = os.getenv("CORS_ALLOW_ORIGINS")
+if raw_cors and raw_cors.strip() == "*":
+    CORS_ALLOW_ORIGINS = ["*"]
+else:
+    CORS_ALLOW_ORIGINS = _get_env_list("CORS_ALLOW_ORIGINS", _DEFAULT_CORS)

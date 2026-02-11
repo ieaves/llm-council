@@ -33,13 +33,28 @@ def has_docker_socket_access(socket_path: str = "/var/run/docker.sock") -> bool:
     is_sock = stat.S_ISSOCK(mode)
     return is_sock and can_read and can_write
 
+
+def conversation_history_text(messages: List[Dict[str, Any]]) -> str:
+    """Render a lightweight text history for prompts."""
+    lines = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "user":
+            lines.append(f"User: {msg.get('content', '')}")
+        elif role == "assistant":
+            stage3 = msg.get("stage3", {})
+            final = stage3.get("response") if isinstance(stage3, dict) else None
+            if final:
+                lines.append(f"Council: {final}")
+    return "\n".join(lines)
+
 app = FastAPI(title="LLM Council API")
 
 # Enable CORS for local development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOW_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=CORS_ALLOW_ORIGINS != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -126,6 +141,15 @@ async def get_conversation(conversation_id: str):
     return conversation
 
 
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    """Delete a conversation."""
+    deleted = storage.delete_conversation(conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "deleted", "id": conversation_id}
+
+
 @app.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest):
     """
@@ -153,10 +177,13 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     chairman_model = conversation.get("chairman_model")
 
     # Run the 3-stage council process
+    history_text = conversation_history_text(conversation["messages"][:-1])
+
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
         request.content,
         council_models=council_models,
         chairman_model=chairman_model,
+        conversation_history=history_text,
     )
 
     # Add assistant message with all stages
@@ -226,9 +253,12 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                     "response": response.get("content") if response else None,
                 })
 
+            history_text = conversation_history_text(conversation["messages"][:-1])
+
             stage1_task = asyncio.create_task(stage1_collect_responses(
                 request.content,
                 council_models=conversation.get("council_models"),
+                conversation_history=history_text,
                 on_progress=stage1_progress
             ))
 
@@ -293,7 +323,8 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 request.content,
                 stage1_results,
                 stage2_results,
-                chairman_model=conversation.get("chairman_model")
+                chairman_model=conversation.get("chairman_model"),
+                conversation_history=history_text,
             )
             yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 

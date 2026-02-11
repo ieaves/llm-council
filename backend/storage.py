@@ -115,6 +115,23 @@ def list_conversations() -> List[Dict[str, Any]]:
     return conversations
 
 
+def delete_conversation(conversation_id: str) -> bool:
+    """
+    Delete a conversation file.
+
+    Args:
+        conversation_id: Conversation identifier
+
+    Returns:
+        True if deleted, False if not found
+    """
+    path = get_conversation_path(conversation_id)
+    if not os.path.exists(path):
+        return False
+    os.remove(path)
+    return True
+
+
 def add_user_message(conversation_id: str, content: str):
     """
     Add a user message to a conversation.

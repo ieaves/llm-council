@@ -5,6 +5,7 @@ export default function Sidebar({
   currentConversationId,
   onSelectConversation,
   onNewConversation,
+  onDeleteConversation,
 }) {
   return (
     <div className="sidebar">
@@ -54,6 +55,18 @@ export default function Sidebar({
                     </span>
                   )}
                 </div>
+              )}
+              {onDeleteConversation && (
+                <button
+                  className="delete-btn"
+                  title="Delete conversation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteConversation(conv.id);
+                  }}
+                >
+                  ×
+                </button>
               )}
             </div>
           ))

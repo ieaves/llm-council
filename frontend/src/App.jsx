@@ -35,6 +35,11 @@ function App() {
     try {
       const convs = await api.listConversations();
       setConversations(convs);
+      // If current conversation was deleted externally, clear it
+      if (currentConversationId && !convs.find((c) => c.id === currentConversationId)) {
+        setCurrentConversationId(null);
+        setCurrentConversation(null);
+      }
     } catch (error) {
       console.error('Failed to load conversations:', error);
     }
@@ -70,6 +75,19 @@ function App() {
 
   const handleSelectConversation = (id) => {
     setCurrentConversationId(id);
+  };
+
+  const handleDeleteConversation = async (id) => {
+    try {
+      await api.deleteConversation(id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (id === currentConversationId) {
+        setCurrentConversationId(null);
+        setCurrentConversation(null);
+      }
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+    }
   };
 
   const handleSendMessage = async (content) => {
@@ -286,6 +304,7 @@ function App() {
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        onDeleteConversation={handleDeleteConversation}
       />
       {showConfigurator && (
         <CouncilConfigurator

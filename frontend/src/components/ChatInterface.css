@@ -114,6 +114,26 @@
   font-size: 14px;
 }
 
+.stop-button {
+  padding: 10px 14px;
+  background: #e45757;
+  border: 1px solid #d64242;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.stop-button:hover:not(:disabled) {
+  background: #c63a3a;
+}
+
+.stop-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 .stage-loading {
   display: flex;
   align-items: center;
@@ -126,6 +146,17 @@
   color: #666;
   font-size: 14px;
   font-style: italic;
+}
+
+.stage-loading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stage-loading-text small {
+  font-style: normal;
+  color: #888;
 }
 
 .spinner {

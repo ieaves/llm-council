@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Markdown from './Markdown';
 import './Stage2.css';
 
@@ -14,16 +14,33 @@ function deAnonymizeText(text, labelToModel) {
   return result;
 }
 
-export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
+export default function Stage2({ rankings, labelToModel, aggregateRankings, totalCount }) {
   const [activeTab, setActiveTab] = useState(0);
+  const safeRankings = rankings || [];
+  const responded = safeRankings.length;
 
-  if (!rankings || rankings.length === 0) {
+  useEffect(() => {
+    if (activeTab >= safeRankings.length) {
+      setActiveTab(Math.max(0, safeRankings.length - 1));
+    }
+  }, [safeRankings.length, activeTab]);
+
+  if (safeRankings.length === 0) {
     return null;
   }
 
   return (
     <div className="stage stage2">
       <h3 className="stage-title">Stage 2: Peer Rankings</h3>
+      <div className="stage-meta">
+        <span className="count">
+          {responded}
+          {totalCount ? ` / ${totalCount}` : ''} evaluations in
+        </span>
+        {totalCount && responded < totalCount && (
+          <span className="pending">Waiting on {totalCount - responded} more...</span>
+        )}
+      </div>
 
       <h4>Raw Evaluations</h4>
       <p className="stage-description">
@@ -32,7 +49,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
       </p>
 
       <div className="tabs">
-        {rankings.map((rank, index) => (
+        {safeRankings.map((rank, index) => (
           <button
             key={index}
             className={`tab ${activeTab === index ? 'active' : ''}`}
@@ -45,20 +62,20 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
 
       <div className="tab-content">
         <div className="ranking-model">
-          {rankings[activeTab].model}
+          {safeRankings[activeTab].model}
         </div>
         <div className="ranking-content markdown-content">
           <Markdown>
-            {deAnonymizeText(rankings[activeTab].ranking, labelToModel)}
+            {deAnonymizeText(safeRankings[activeTab].ranking, labelToModel)}
           </Markdown>
         </div>
 
-        {rankings[activeTab].parsed_ranking &&
-         rankings[activeTab].parsed_ranking.length > 0 && (
+        {safeRankings[activeTab].parsed_ranking &&
+         safeRankings[activeTab].parsed_ranking.length > 0 && (
           <div className="parsed-ranking">
             <strong>Extracted Ranking:</strong>
             <ol>
-              {rankings[activeTab].parsed_ranking.map((label, i) => (
+              {safeRankings[activeTab].parsed_ranking.map((label, i) => (
                 <li key={i}>
                   {labelToModel && labelToModel[label]
                     ? labelToModel[label].split('/')[1] || labelToModel[label]

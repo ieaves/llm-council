@@ -13,6 +13,24 @@
   font-weight: 600;
 }
 
+.stage-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: #666;
+  font-size: 13px;
+}
+
+.stage-meta .count {
+  font-weight: 700;
+  color: #2a7ae2;
+}
+
+.stage-meta .pending {
+  color: #999;
+}
+
 .tabs {
   display: flex;
   gap: 8px;

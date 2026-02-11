@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import CouncilConfigurator from './components/CouncilConfigurator';
 import { api } from './api';
 import './App.css';
+
+const DEBUG_EVENTS = import.meta.env.VITE_DEBUG_EVENTS === 'true';
 
 function App() {
   const [conversations, setConversations] = useState([]);
@@ -14,6 +16,7 @@ function App() {
   const [defaultChairman, setDefaultChairman] = useState('');
   const [showConfigurator, setShowConfigurator] = useState(false);
   const [configuratorKey, setConfiguratorKey] = useState(0);
+  const abortControllerRef = useRef(null);
 
   // Load conversations on mount
   useEffect(() => {
@@ -84,8 +87,8 @@ function App() {
       // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
         role: 'assistant',
-        stage1: null,
-        stage2: null,
+        stage1: [],
+        stage2: [],
         stage3: null,
         metadata: null,
         loading: {
@@ -102,13 +105,41 @@ function App() {
       }));
 
       // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
-        switch (eventType) {
-          case 'stage1_start':
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      await api.sendMessageStream(
+        currentConversationId,
+        content,
+        (eventType, event) => {
+          if (DEBUG_EVENTS) {
+            // Helpful debugging in the browser console
+            // eslint-disable-next-line no-console
+            console.log('[sse]', eventType, event);
+          }
+          switch (eventType) {
+            case 'stage1_start':
+              setCurrentConversation((prev) => {
+                const messages = [...prev.messages];
+                const lastMsg = messages[messages.length - 1];
+                lastMsg.loading.stage1 = true;
+                return { ...prev, messages };
+              });
+              break;
+
+          case 'stage1_progress':
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage1 = true;
+              const existing = lastMsg.stage1 || [];
+              const filtered = existing.filter((resp) => resp.model !== event.model);
+              if (event.response !== undefined) {
+                filtered.push({
+                  model: event.model,
+                  response: event.response || '',
+                });
+              }
+              lastMsg.stage1 = filtered;
               return { ...prev, messages };
             });
             break;
@@ -128,6 +159,24 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage2 = true;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage2_progress':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              const existing = lastMsg.stage2 || [];
+              const filtered = existing.filter((resp) => resp.model !== event.model);
+              if (event.ranking !== undefined) {
+                filtered.push({
+                  model: event.model,
+                  ranking: event.ranking || '',
+                  parsed_ranking: null,
+                });
+              }
+              lastMsg.stage2 = filtered;
               return { ...prev, messages };
             });
             break;
@@ -180,17 +229,54 @@ function App() {
 
           default:
             console.log('Unknown event type:', eventType);
-        }
-      });
+          }
+        },
+        controller.signal
+      );
+
+      abortControllerRef.current = null;
     } catch (error) {
-      console.error('Failed to send message:', error);
-      // Remove optimistic messages on error
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: prev.messages.slice(0, -2),
-      }));
-      setIsLoading(false);
+      if (error.name === 'AbortError') {
+        console.warn('Council run aborted by user');
+        setIsLoading(false);
+      } else {
+        console.error('Failed to send message:', error);
+        // Remove optimistic messages on error
+        setCurrentConversation((prev) => ({
+          ...prev,
+          messages: prev.messages.slice(0, -2),
+        }));
+        setIsLoading(false);
+      }
     }
+  };
+
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+    // Remove the in-flight assistant placeholder
+    setCurrentConversation((prev) => {
+      if (!prev || !prev.messages || prev.messages.length === 0) return prev;
+      const messages = [...prev.messages];
+      const last = messages[messages.length - 1];
+      if (last?.role === 'assistant' && last.loading) {
+        const hasData = last.stage1 || last.stage2 || last.stage3;
+        if (hasData) {
+          last.loading = {
+            stage1: false,
+            stage2: false,
+            stage3: false,
+          };
+          messages[messages.length - 1] = last;
+        } else {
+          messages.pop();
+        }
+      }
+      return { ...prev, messages };
+    });
   };
 
   return (
@@ -234,6 +320,7 @@ function App() {
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
+        onStop={handleStop}
       />
     </div>
   );

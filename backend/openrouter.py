@@ -1,7 +1,8 @@
 """OpenRouter + optional local Ollama client for making LLM requests."""
 
+import asyncio
 import httpx
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable, Awaitable
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL, OLLAMA_API_URL
 
 
@@ -99,7 +100,8 @@ async def query_model(
 
 async def query_models_parallel(
     models: List[str],
-    messages: List[Dict[str, str]]
+    messages: List[Dict[str, str]],
+    on_progress: Optional[Callable[[str, Optional[Dict[str, Any]]], Awaitable[None]]] = None,
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
     Query multiple models in parallel.
@@ -111,13 +113,42 @@ async def query_models_parallel(
     Returns:
         Dict mapping model identifier to response dict (or None if failed)
     """
-    import asyncio
+    async def run_and_tag(model_name: str):
+        try:
+            resp = await query_model(model_name, messages)
+            return model_name, resp, None
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # Capture exceptions so callers still get model name
+            return model_name, None, exc
 
-    # Create tasks for all models
-    tasks = [query_model(model, messages) for model in models]
+    tasks = [asyncio.create_task(run_and_tag(model)) for model in models]
 
-    # Wait for all to complete
-    responses = await asyncio.gather(*tasks)
+    responses: Dict[str, Optional[Dict[str, Any]]] = {}
 
-    # Map models to their responses
-    return {model: response for model, response in zip(models, responses)}
+    for wrapper in asyncio.as_completed(tasks):
+        model: str
+        response: Optional[Dict[str, Any]]
+        error: Optional[Exception]
+
+        model, response, error = await wrapper
+
+        if error:
+            print(f"Error in parallel query for model {model}: {error}")
+
+        responses[model] = response
+
+        if on_progress:
+            try:
+                await on_progress(model, response)
+            except Exception as progress_error:
+                if isinstance(progress_error, asyncio.CancelledError):
+                    # Propagate cancellation and stop remaining tasks
+                    for pending in tasks:
+                        if not pending.done():
+                            pending.cancel()
+                    raise
+                # Progress reporting should never break execution
+                print(f"on_progress error for {model}: {progress_error}")
+
+    return responses

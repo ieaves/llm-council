@@ -1,6 +1,6 @@
 """FastAPI backend for LLM Council."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -177,7 +177,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 
 
 @app.post("/api/conversations/{conversation_id}/message/stream")
-async def send_message_stream(conversation_id: str, request: SendMessageRequest):
+async def send_message_stream(conversation_id: str, request: SendMessageRequest, http_request: Request):
     """
     Send a message and stream the 3-stage council process.
     Returns Server-Sent Events as each stage completes.
@@ -190,8 +190,16 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
+    async def ensure_client_connected():
+        """Raise CancelledError if the client has disconnected."""
+        if await http_request.is_disconnected():
+            raise asyncio.CancelledError("Client disconnected")
+
     async def event_generator():
         try:
+            # Bail out early if the client already disconnected
+            await ensure_client_connected()
+
             # Add user message
             storage.add_user_message(conversation_id, request.content)
 
@@ -201,24 +209,85 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
 
             # Stage 1: Collect responses
+            await ensure_client_connected()
             yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
-            stage1_results = await stage1_collect_responses(
+            print(f"[stream] stage1_start conversation={conversation_id} question={request.content!r}")
+
+            stage1_progress_queue: asyncio.Queue = asyncio.Queue()
+
+            async def stage1_progress(model: str, response):
+                await ensure_client_connected()
+                status = "ok" if response is not None else "error"
+                print(f"[stream] stage1_progress model={model} status={status}")
+                await stage1_progress_queue.put({
+                    "type": "stage1_progress",
+                    "model": model,
+                    "status": status,
+                    "response": response.get("content") if response else None,
+                })
+
+            stage1_task = asyncio.create_task(stage1_collect_responses(
                 request.content,
-                council_models=conversation.get("council_models")
-            )
+                council_models=conversation.get("council_models"),
+                on_progress=stage1_progress
+            ))
+
+            while True:
+                if stage1_task.done() and stage1_progress_queue.empty():
+                    break
+                try:
+                    event = await asyncio.wait_for(stage1_progress_queue.get(), timeout=0.25)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    await ensure_client_connected()
+                    continue
+
+            stage1_results = await stage1_task
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+            print(f"[stream] stage1_complete conversation={conversation_id} count={len(stage1_results)}")
 
             # Stage 2: Collect rankings
+            await ensure_client_connected()
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(
+            print(f"[stream] stage2_start conversation={conversation_id}")
+
+            stage2_progress_queue: asyncio.Queue = asyncio.Queue()
+
+            async def stage2_progress(model: str, response):
+                await ensure_client_connected()
+                status = "ok" if response is not None else "error"
+                print(f"[stream] stage2_progress model={model} status={status}")
+                await stage2_progress_queue.put({
+                    "type": "stage2_progress",
+                    "model": model,
+                    "status": status,
+                    "ranking": response.get("content") if response else None,
+                })
+
+            stage2_task = asyncio.create_task(stage2_collect_rankings(
                 request.content,
                 stage1_results,
-                council_models=conversation.get("council_models")
-            )
+                council_models=conversation.get("council_models"),
+                on_progress=stage2_progress
+            ))
+
+            while True:
+                if stage2_task.done() and stage2_progress_queue.empty():
+                    break
+                try:
+                    event = await asyncio.wait_for(stage2_progress_queue.get(), timeout=0.25)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    await ensure_client_connected()
+                    continue
+
+            stage2_results, label_to_model = await stage2_task
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
             yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+            print(f"[stream] stage2_complete conversation={conversation_id} count={len(stage2_results)}")
 
             # Stage 3: Synthesize final answer
+            await ensure_client_connected()
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
             stage3_result = await stage3_synthesize_final(
                 request.content,
@@ -235,6 +304,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
             # Save complete assistant message
+            await ensure_client_connected()
             storage.add_assistant_message(
                 conversation_id,
                 stage1_results,
@@ -245,6 +315,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Send completion event
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 
+        except asyncio.CancelledError:
+            # Client stopped the stream; exit quietly
+            return
         except Exception as e:
             # Send error event
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

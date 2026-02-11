@@ -9,6 +9,7 @@ export default function ChatInterface({
   conversation,
   onSendMessage,
   isLoading,
+  onStop,
 }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -95,27 +96,63 @@ export default function ChatInterface({
                 <div className="assistant-message">
                   <div className="message-label">LLM Council</div>
 
-                  {/* Stage 1 */}
-                  {msg.loading?.stage1 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 1: Collecting individual responses...</span>
-                    </div>
+              {/* Stage 1 */}
+              {msg.loading?.stage1 && (
+                <div className="stage-loading">
+                  <div className="spinner"></div>
+                  <div className="stage-loading-text">
+                    <span>Running Stage 1: Collecting individual responses...</span>
+                    {conversation.council_models && conversation.council_models.length > 0 && (
+                      <small>
+                        Responded: {(msg.stage1 || []).map((r) => r.model.split('/')[1] || r.model).join(', ') || 'none'}
+                        {' · '}
+                        Waiting:{' '}
+                        {conversation.council_models
+                          .filter(
+                            (m) => !(msg.stage1 || []).some((r) => r.model === m)
+                          )
+                          .map((m) => m.split('/')[1] || m)
+                          .join(', ') || '—'}
+                      </small>
+                    )}
+                  </div>
+                </div>
+              )}
+                  {msg.stage1 && (
+                    <Stage1
+                      responses={msg.stage1}
+                      totalCount={conversation.council_models?.length}
+                    />
                   )}
-                  {msg.stage1 && <Stage1 responses={msg.stage1} />}
 
-                  {/* Stage 2 */}
-                  {msg.loading?.stage2 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 2: Peer rankings...</span>
-                    </div>
-                  )}
+              {/* Stage 2 */}
+              {msg.loading?.stage2 && (
+                <div className="stage-loading">
+                  <div className="spinner"></div>
+                  <div className="stage-loading-text">
+                    <span>Running Stage 2: Peer rankings...</span>
+                    {conversation.council_models && conversation.council_models.length > 0 && (
+                      <small>
+                        Received: {(msg.stage2 || []).map((r) => r.model.split('/')[1] || r.model).join(', ') || 'none'}
+                        {' · '}
+                        Waiting:{' '}
+                        {conversation.council_models
+                          .filter(
+                            (m) => !(msg.stage2 || []).some((r) => r.model === m)
+                          )
+                          .map((m) => m.split('/')[1] || m)
+                          .join(', ') || '—'}
+                      </small>
+                    )}
+                  </div>
+                </div>
+              )}
                   {msg.stage2 && (
                     <Stage2
                       rankings={msg.stage2}
                       labelToModel={msg.metadata?.label_to_model}
                       aggregateRankings={msg.metadata?.aggregate_rankings}
+                      totalCount={conversation.council_models?.length}
                     />
                   )}
 
@@ -137,6 +174,11 @@ export default function ChatInterface({
           <div className="loading-indicator">
             <div className="spinner"></div>
             <span>Consulting the council...</span>
+            {onStop && (
+              <button className="stop-button" type="button" onClick={onStop}>
+                Stop
+              </button>
+            )}
           </div>
         )}
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
+import CouncilConfigurator from './components/CouncilConfigurator';
 import { api } from './api';
 import './App.css';
 
@@ -9,10 +10,15 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [defaultModels, setDefaultModels] = useState([]);
+  const [defaultChairman, setDefaultChairman] = useState('');
+  const [showConfigurator, setShowConfigurator] = useState(false);
+  const [configuratorKey, setConfiguratorKey] = useState(0);
 
   // Load conversations on mount
   useEffect(() => {
     loadConversations();
+    loadModels();
   }, []);
 
   // Load conversation details when selected
@@ -31,6 +37,18 @@ function App() {
     }
   };
 
+  const loadModels = async () => {
+    try {
+      const models = await api.listModels();
+      setDefaultModels(models.council_models || []);
+      setDefaultChairman(models.chairman_model || '');
+      return models;
+    } catch (error) {
+      console.error('Failed to load models:', error);
+      return null;
+    }
+  };
+
   const loadConversation = async (id) => {
     try {
       const conv = await api.getConversation(id);
@@ -41,16 +59,10 @@ function App() {
   };
 
   const handleNewConversation = async () => {
-    try {
-      const newConv = await api.createConversation();
-      setConversations([
-        { id: newConv.id, created_at: newConv.created_at, message_count: 0 },
-        ...conversations,
-      ]);
-      setCurrentConversationId(newConv.id);
-    } catch (error) {
-      console.error('Failed to create conversation:', error);
-    }
+    // Ensure defaults are loaded before showing the configurator
+    await loadModels();
+    setConfiguratorKey((k) => k + 1); // force fresh state each open
+    setShowConfigurator(true);
   };
 
   const handleSelectConversation = (id) => {
@@ -189,6 +201,35 @@ function App() {
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
       />
+      {showConfigurator && (
+        <CouncilConfigurator
+          key={configuratorKey}
+          defaultModels={defaultModels}
+          defaultChairman={defaultChairman}
+          onCancel={() => setShowConfigurator(false)}
+          onCreate={async ({ models, chairman }) => {
+            try {
+              const newConv = await api.createConversation(models, chairman);
+              setConversations((prev) => [
+                {
+                  id: newConv.id,
+                  created_at: newConv.created_at,
+                  title: newConv.title,
+                  message_count: 0,
+                  council_models: newConv.council_models,
+                  chairman_model: newConv.chairman_model,
+                },
+                ...prev,
+              ]);
+              setCurrentConversationId(newConv.id);
+            } catch (error) {
+              console.error('Failed to create conversation:', error);
+            } finally {
+              setShowConfigurator(false);
+            }
+          }}
+        />
+      )}
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}

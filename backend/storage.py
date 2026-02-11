@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-from .config import DATA_DIR
+from .config import DATA_DIR, COUNCIL_MODELS, CHAIRMAN_MODEL
 
 
 def ensure_data_dir():
@@ -18,7 +18,11 @@ def get_conversation_path(conversation_id: str) -> str:
     return os.path.join(DATA_DIR, f"{conversation_id}.json")
 
 
-def create_conversation(conversation_id: str) -> Dict[str, Any]:
+def create_conversation(
+    conversation_id: str,
+    council_models: Optional[list[str]] = None,
+    chairman_model: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Create a new conversation.
 
@@ -34,7 +38,9 @@ def create_conversation(conversation_id: str) -> Dict[str, Any]:
         "id": conversation_id,
         "created_at": datetime.utcnow().isoformat(),
         "title": "New Conversation",
-        "messages": []
+        "messages": [],
+        "council_models": council_models or COUNCIL_MODELS,
+        "chairman_model": chairman_model or CHAIRMAN_MODEL,
     }
 
     # Save to file
@@ -98,7 +104,9 @@ def list_conversations() -> List[Dict[str, Any]]:
                     "id": data["id"],
                     "created_at": data["created_at"],
                     "title": data.get("title", "New Conversation"),
-                    "message_count": len(data["messages"])
+                    "message_count": len(data["messages"]),
+                    "council_models": data.get("council_models"),
+                    "chairman_model": data.get("chairman_model"),
                 })
 
     # Sort by creation time, newest first

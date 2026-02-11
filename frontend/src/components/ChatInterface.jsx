@@ -50,6 +50,29 @@ export default function ChatInterface({
 
   return (
     <div className="chat-interface">
+      <div className="conversation-header">
+        <div className="conversation-title-row">
+          <h2>{conversation.title || 'Conversation'}</h2>
+          <div className="conversation-pill">
+            {conversation.messages?.length || 0} messages
+          </div>
+        </div>
+        <div className="conversation-council-summary">
+          {conversation.chairman_model && (
+            <div className="pill">
+              Chair: {conversation.chairman_model.split('/')[1] || conversation.chairman_model}
+            </div>
+          )}
+          {conversation.council_models && conversation.council_models.length > 0 && (
+            <div className="pill">
+              Council ({conversation.council_models.length}):{' '}
+              {conversation.council_models.slice(0, 4).map((m) => m.split('/')[1] || m).join(', ')}
+              {conversation.council_models.length > 4 ? '…' : ''}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="messages-container">
         {conversation.messages.length === 0 ? (
           <div className="empty-state">

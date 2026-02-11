@@ -19,16 +19,30 @@ export const api = {
   /**
    * Create a new conversation.
    */
-  async createConversation() {
+  async createConversation(councilModels, chairmanModel) {
     const response = await fetch(`${API_BASE}/api/conversations`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        council_models: councilModels,
+        chairman_model: chairmanModel,
+      }),
     });
     if (!response.ok) {
       throw new Error('Failed to create conversation');
+    }
+    return response.json();
+  },
+
+  /**
+   * List available council models.
+   */
+  async listModels() {
+    const response = await fetch(`${API_BASE}/api/models`);
+    if (!response.ok) {
+      throw new Error('Failed to list models');
     }
     return response.json();
   },

@@ -1,0 +1,92 @@
+.council-config-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.council-config {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 24px;
+  width: 480px;
+  max-width: 90vw;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+.council-config h2 {
+  margin: 0 0 8px 0;
+}
+
+.council-config .help {
+  color: #666;
+  margin: 0 0 16px 0;
+  font-size: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #333;
+}
+
+.field textarea,
+.field input {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.field .hint {
+  color: #777;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.field code {
+  background: #f4f6f8;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.actions .primary {
+  background: #4a90e2;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.actions .primary:hover {
+  background: #3c7bc2;
+}
+
+.actions .secondary {
+  background: #f5f5f5;
+  color: #333;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.actions .secondary:hover {
+  background: #ebebeb;
+}

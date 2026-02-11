@@ -13,7 +13,12 @@ import stat
 
 from . import storage
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
-from .config import OLLAMA_API_URL, CORS_ALLOW_ORIGINS
+from .config import (
+    OLLAMA_API_URL,
+    CORS_ALLOW_ORIGINS,
+    COUNCIL_MODELS,
+    CHAIRMAN_MODEL,
+)
 
 
 def has_docker_socket_access(socket_path: str = "/var/run/docker.sock") -> bool:
@@ -42,7 +47,8 @@ app.add_middleware(
 
 class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
-    pass
+    council_models: list[str] | None = None
+    chairman_model: str | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -56,6 +62,8 @@ class ConversationMetadata(BaseModel):
     created_at: str
     title: str
     message_count: int
+    council_models: list[str] | None = None
+    chairman_model: str | None = None
 
 
 class Conversation(BaseModel):
@@ -64,6 +72,8 @@ class Conversation(BaseModel):
     created_at: str
     title: str
     messages: List[Dict[str, Any]]
+    council_models: list[str] | None = None
+    chairman_model: str | None = None
 
 
 @app.get("/")
@@ -77,6 +87,15 @@ async def root():
     }
 
 
+@app.get("/api/models")
+async def list_models():
+    """List available council models and default chairman."""
+    return {
+        "council_models": COUNCIL_MODELS,
+        "chairman_model": CHAIRMAN_MODEL,
+    }
+
+
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
 async def list_conversations():
     """List all conversations (metadata only)."""
@@ -87,7 +106,14 @@ async def list_conversations():
 async def create_conversation(request: CreateConversationRequest):
     """Create a new conversation."""
     conversation_id = str(uuid.uuid4())
-    conversation = storage.create_conversation(conversation_id)
+    if request.council_models is not None and len(request.council_models) == 0:
+        raise HTTPException(status_code=400, detail="council_models cannot be empty")
+
+    conversation = storage.create_conversation(
+        conversation_id,
+        council_models=request.council_models,
+        chairman_model=request.chairman_model,
+    )
     return conversation
 
 
@@ -122,9 +148,15 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         title = await generate_conversation_title(request.content)
         storage.update_conversation_title(conversation_id, title)
 
+    # Use per-conversation council configuration (falls back to defaults)
+    council_models = conversation.get("council_models")
+    chairman_model = conversation.get("chairman_model")
+
     # Run the 3-stage council process
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-        request.content
+        request.content,
+        council_models=council_models,
+        chairman_model=chairman_model,
     )
 
     # Add assistant message with all stages
@@ -170,18 +202,30 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
             # Stage 1: Collect responses
             yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
-            stage1_results = await stage1_collect_responses(request.content)
+            stage1_results = await stage1_collect_responses(
+                request.content,
+                council_models=conversation.get("council_models")
+            )
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
             # Stage 2: Collect rankings
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results)
+            stage2_results, label_to_model = await stage2_collect_rankings(
+                request.content,
+                stage1_results,
+                council_models=conversation.get("council_models")
+            )
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
             yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
 
             # Stage 3: Synthesize final answer
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results)
+            stage3_result = await stage3_synthesize_final(
+                request.content,
+                stage1_results,
+                stage2_results,
+                chairman_model=conversation.get("chairman_model")
+            )
             yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started

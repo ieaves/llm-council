@@ -22,7 +22,9 @@ OPENROUTER_API_URL = os.getenv(
 )
 
 # Optional local Ollama endpoint (HTTP API). Leave unset to disable.
-OLLAMA_API_URL = os.getenv("OLLAMA_API_URL")
+# In Docker, defaults to host.docker.internal:11434 so the container can reach
+# the host's Ollama daemon (compose already sets the host mapping).
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://host.docker.internal:11434")
 
 # Council members - allow override via env to avoid rebuilding images
 COUNCIL_MODELS = _get_env_list(

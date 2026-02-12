@@ -2,6 +2,8 @@
 
 import asyncio
 import httpx
+import socket
+from urllib.parse import urlparse, urlunparse
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL, OLLAMA_API_URL
 
@@ -15,18 +17,24 @@ def _is_ollama_model(model: str) -> bool:
     return model.startswith("ollama/")
 
 
-async def _query_ollama(model: str, messages: List[Dict[str, str]], timeout: float) -> Optional[Dict[str, Any]]:
-    """Call the Ollama chat HTTP API.
-
-    Docs: https://github.com/ollama/ollama/blob/main/docs/api.md#chat
-    """
+async def _query_ollama(
+    model: str, messages: List[Dict[str, str]], timeout: float
+) -> Optional[Dict[str, Any]]:
     if not OLLAMA_API_URL:
         print(f"Ollama model requested ({model}) but OLLAMA_API_URL is not set.")
         return None
 
+    ollama_base = OLLAMA_API_URL.strip("/")
+
     # Strip the provider prefix so users can list "ollama/llama3" etc.
     raw_model = model.split("/", 1)[1] if "/" in model else model
-    payload = {
+    ollama_payload = {
+        "model": raw_model,
+        "messages": messages,
+        "stream": False,
+    }
+
+    openai_payload = {
         "model": raw_model,
         "messages": messages,
         "stream": False,
@@ -34,12 +42,29 @@ async def _query_ollama(model: str, messages: List[Dict[str, str]], timeout: flo
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(f"{OLLAMA_API_URL}/api/chat", json=payload)
+            # First try Ollama native endpoint
+            response = await client.post(f"{ollama_base}/api/chat", json=ollama_payload)
+            if response.status_code == 404:
+                # Fallback to OpenAI-compatible llama.cpp endpoint
+                response = await client.post(
+                    f"{ollama_base}/v1/chat/completions",
+                    json=openai_payload,
+                )
             response.raise_for_status()
+
             data = response.json()
-            message = data.get("message", {})
+
+            if "message" in data:
+                message = data.get("message", {})
+                content = message.get("content")
+            elif "choices" in data:
+                # OpenAI-compatible format
+                content = data["choices"][0]["message"]["content"]
+            else:
+                content = None
+
             return {
-                "content": message.get("content"),
+                "content": content,
                 "reasoning_details": None,
             }
     except Exception as e:
@@ -48,9 +73,7 @@ async def _query_ollama(model: str, messages: List[Dict[str, str]], timeout: flo
 
 
 async def query_model(
-    model: str,
-    messages: List[Dict[str, str]],
-    timeout: float = 120.0
+    model: str, messages: List[Dict[str, str]], timeout: float = 120.0
 ) -> Optional[Dict[str, Any]]:
     """
     Query a single model via OpenRouter or a local Ollama endpoint.
@@ -79,18 +102,16 @@ async def query_model(
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
-                OPENROUTER_API_URL,
-                headers=headers,
-                json=payload
+                OPENROUTER_API_URL, headers=headers, json=payload
             )
             response.raise_for_status()
 
             data = response.json()
-            message = data['choices'][0]['message']
+            message = data["choices"][0]["message"]
 
             return {
-                'content': message.get('content'),
-                'reasoning_details': message.get('reasoning_details')
+                "content": message.get("content"),
+                "reasoning_details": message.get("reasoning_details"),
             }
 
     except Exception as e:
@@ -101,7 +122,9 @@ async def query_model(
 async def query_models_parallel(
     models: List[str],
     messages: List[Dict[str, str]],
-    on_progress: Optional[Callable[[str, Optional[Dict[str, Any]]], Awaitable[None]]] = None,
+    on_progress: Optional[
+        Callable[[str, Optional[Dict[str, Any]]], Awaitable[None]]
+    ] = None,
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
     Query multiple models in parallel.
@@ -113,6 +136,7 @@ async def query_models_parallel(
     Returns:
         Dict mapping model identifier to response dict (or None if failed)
     """
+
     async def run_and_tag(model_name: str):
         try:
             resp = await query_model(model_name, messages)

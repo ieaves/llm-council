@@ -6,7 +6,7 @@ services:
       - .env
     environment:
       - DATA_DIR=/app/data/conversations
-      - OLLAMA_API_URL=${OLLAMA_API_URL:-}
+      - OLLAMA_API_URL=http://host.docker.internal:8080
     volumes:
       - data:/app/data/conversations
       - /var/run/docker.sock:/var/run/docker.sock

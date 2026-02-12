@@ -96,3 +96,27 @@ body {
   border-left: 4px solid #ddd;
   color: #666;
 }
+
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 12px 0;
+  font-size: 14px;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid #ddd;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-content th {
+  background: #f5f7fb;
+  font-weight: 700;
+}
+
+.markdown-content tr:nth-child(even) td {
+  background: #fbfcff;
+}

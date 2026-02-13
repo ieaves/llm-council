@@ -113,6 +113,8 @@ OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
 DATA_DIR=data/conversations
 # Local LLMs via Ollama (HTTP API); leave unset to disable
 OLLAMA_API_URL=http://host.docker.internal:11434
+# Optional Ramalama SDK override (auto-detected by default)
+# RAMALAMA_SDK_CONNECT_HOST=host.docker.internal
 # Override CORS origins (comma-separated)
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```

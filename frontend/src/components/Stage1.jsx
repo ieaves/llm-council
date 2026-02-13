@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Markdown from './Markdown';
+import { formatModelName } from '../utils/modelName';
 import './Stage1.css';
 
 export default function Stage1({ responses, totalCount }) {
@@ -37,13 +38,13 @@ export default function Stage1({ responses, totalCount }) {
             className={`tab ${activeTab === index ? 'active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
-            {resp.model.split('/')[1] || resp.model}
+            {formatModelName(resp.model)}
           </button>
         ))}
       </div>
 
       <div className="tab-content">
-        <div className="model-name">{safeResponses[activeTab].model}</div>
+        <div className="model-name">{formatModelName(safeResponses[activeTab].model)}</div>
         <div className="response-text markdown-content">
           <Markdown>{safeResponses[activeTab].response}</Markdown>
         </div>

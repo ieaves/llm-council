@@ -5,11 +5,13 @@ services:
     env_file:
       - .env
     environment:
-      - DATA_DIR=/app/data/conversations
-      - OLLAMA_API_URL=http://host.docker.internal:8080
+      DATA_DIR: /app/data/conversations
+      OLLAMA_API_URL: http://host.docker.internal:8080
+      RAMALAMA_STORE: ${MODEL_CACHE}
     volumes:
       - data:/app/data/conversations
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock  # If you want to run local models without ollama
+      - ${MODEL_CACHE}:${MODEL_CACHE}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

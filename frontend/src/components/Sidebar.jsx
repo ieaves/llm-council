@@ -1,4 +1,5 @@
 import './Sidebar.css';
+import { formatModelName } from '../utils/modelName';
 
 export default function Sidebar({
   conversations,
@@ -45,12 +46,12 @@ export default function Sidebar({
                 <div className="conversation-council">
                   {conv.chairman_model && (
                     <span className="chair-label">
-                      Chair: {conv.chairman_model.split('/')[1] || conv.chairman_model}
+                      Chair: {formatModelName(conv.chairman_model)}
                     </span>
                   )}
                   {conv.council_models && conv.council_models.length > 0 && (
                     <span className="council-label">
-                      Council: {conv.council_models.slice(0, 3).map((m) => m.split('/')[1] || m).join(', ')}
+                      Council: {conv.council_models.slice(0, 3).map((m) => formatModelName(m)).join(', ')}
                       {conv.council_models.length > 3 ? ` +${conv.council_models.length - 3}` : ''}
                     </span>
                   )}

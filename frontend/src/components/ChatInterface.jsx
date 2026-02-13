@@ -3,6 +3,7 @@ import Markdown from './Markdown';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
+import { formatModelName } from '../utils/modelName';
 import './ChatInterface.css';
 
 export default function ChatInterface({
@@ -61,13 +62,13 @@ export default function ChatInterface({
         <div className="conversation-council-summary">
           {conversation.chairman_model && (
             <div className="pill">
-              Chair: {conversation.chairman_model.split('/')[1] || conversation.chairman_model}
+              Chair: {formatModelName(conversation.chairman_model)}
             </div>
           )}
           {conversation.council_models && conversation.council_models.length > 0 && (
             <div className="pill">
               Council ({conversation.council_models.length}):{' '}
-              {conversation.council_models.slice(0, 4).map((m) => m.split('/')[1] || m).join(', ')}
+              {conversation.council_models.slice(0, 4).map((m) => formatModelName(m)).join(', ')}
               {conversation.council_models.length > 4 ? '…' : ''}
             </div>
           )}
@@ -104,14 +105,14 @@ export default function ChatInterface({
                     <span>Running Stage 1: Collecting individual responses...</span>
                     {conversation.council_models && conversation.council_models.length > 0 && (
                       <small>
-                        Responded: {(msg.stage1 || []).map((r) => r.model.split('/')[1] || r.model).join(', ') || 'none'}
+                        Responded: {(msg.stage1 || []).map((r) => formatModelName(r.model)).join(', ') || 'none'}
                         {' · '}
                         Waiting:{' '}
                         {conversation.council_models
                           .filter(
                             (m) => !(msg.stage1 || []).some((r) => r.model === m)
                           )
-                          .map((m) => m.split('/')[1] || m)
+                          .map((m) => formatModelName(m))
                           .join(', ') || '—'}
                       </small>
                     )}
@@ -133,14 +134,14 @@ export default function ChatInterface({
                     <span>Running Stage 2: Peer rankings...</span>
                     {conversation.council_models && conversation.council_models.length > 0 && (
                       <small>
-                        Received: {(msg.stage2 || []).map((r) => r.model.split('/')[1] || r.model).join(', ') || 'none'}
+                        Received: {(msg.stage2 || []).map((r) => formatModelName(r.model)).join(', ') || 'none'}
                         {' · '}
                         Waiting:{' '}
                         {conversation.council_models
                           .filter(
                             (m) => !(msg.stage2 || []).some((r) => r.model === m)
                           )
-                          .map((m) => m.split('/')[1] || m)
+                          .map((m) => formatModelName(m))
                           .join(', ') || '—'}
                       </small>
                     )}

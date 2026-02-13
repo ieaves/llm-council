@@ -8,8 +8,6 @@ from typing import List, Dict, Any
 import uuid
 import json
 import asyncio
-import os
-import stat
 
 from . import storage
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
@@ -19,19 +17,8 @@ from .config import (
     COUNCIL_MODELS,
     CHAIRMAN_MODEL,
 )
+from .docker_utils import has_docker_socket_access
 
-
-def has_docker_socket_access(socket_path: str = "/var/run/docker.sock") -> bool:
-    """Return True if the process can read/write the host docker socket."""
-    try:
-        st = os.stat(socket_path)
-    except FileNotFoundError:
-        return False
-    mode = st.st_mode
-    can_read = os.access(socket_path, os.R_OK)
-    can_write = os.access(socket_path, os.W_OK)
-    is_sock = stat.S_ISSOCK(mode)
-    return is_sock and can_read and can_write
 
 
 def conversation_history_text(messages: List[Dict[str, Any]]) -> str:

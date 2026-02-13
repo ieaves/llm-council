@@ -6,17 +6,17 @@ services:
       - .env
     environment:
       DATA_DIR: /app/data/conversations
-      OLLAMA_API_URL: http://host.docker.internal:8080
-      RAMALAMA_STORE: ${MODEL_CACHE}
+      OLLAMA_API_URL: http://host.docker.internal:8080 # Only needed if you want to use Ollama
+      RAMALAMA_STORE: ${MODEL_CACHE} # If you want to run local models without Ollama
+    security_opt:
+      - label=disable
     volumes:
       - data:/app/data/conversations
-      - /var/run/docker.sock:/var/run/docker.sock  # If you want to run local models without ollama
-      - ${MODEL_CACHE}:${MODEL_CACHE}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      #- /var/run/docker.sock:/var/run/docker.sock  # If you use docker and want to run local models without Ollama
+      - /run/podman/podman.sock:/var/run/docker.sock # If you use podman and want to run local models without Ollama
+      - ${MODEL_CACHE}:${MODEL_CACHE}  # If you want to run local models without Ollama
     ports:
       - "8001:8001"
-    command: uv run python -m backend.main
 
   frontend:
     build:

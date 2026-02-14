@@ -70,11 +70,23 @@
   border: 1px solid #e0e0e0;
 }
 
+.response-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .model-name {
+  flex: 1;
+  min-width: 180px;
   color: #888;
   font-size: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
   font-family: monospace;
+  word-break: break-word;
 }
 
 .response-text {

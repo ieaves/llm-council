@@ -10,12 +10,24 @@
   border: 1px solid #c8e6c8;
 }
 
+.final-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .chairman-label {
+  flex: 1;
+  min-width: 180px;
   color: #2d8a2d;
   font-size: 12px;
   font-family: monospace;
-  margin-bottom: 12px;
+  margin-bottom: 0;
   font-weight: 600;
+  word-break: break-word;
 }
 
 .final-text {

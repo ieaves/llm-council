@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Markdown from './Markdown';
 import { formatModelName } from '../utils/modelName';
 import './Stage2.css';
@@ -19,15 +19,11 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, tota
   const safeRankings = rankings || [];
   const responded = safeRankings.length;
 
-  useEffect(() => {
-    if (activeTab >= safeRankings.length) {
-      setActiveTab(Math.max(0, safeRankings.length - 1));
-    }
-  }, [safeRankings.length, activeTab]);
-
   if (safeRankings.length === 0) {
     return null;
   }
+
+  const activeIndex = Math.min(activeTab, safeRankings.length - 1);
 
   return (
     <div className="stage stage2">
@@ -52,7 +48,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, tota
         {safeRankings.map((rank, index) => (
           <button
             key={index}
-            className={`tab ${activeTab === index ? 'active' : ''}`}
+            className={`tab ${activeIndex === index ? 'active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
             {formatModelName(rank.model)}
@@ -62,20 +58,20 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, tota
 
       <div className="tab-content">
         <div className="ranking-model">
-          {formatModelName(safeRankings[activeTab].model)}
+          {formatModelName(safeRankings[activeIndex].model)}
         </div>
         <div className="ranking-content markdown-content">
           <Markdown>
-            {deAnonymizeText(safeRankings[activeTab].ranking, labelToModel)}
+            {deAnonymizeText(safeRankings[activeIndex].ranking, labelToModel)}
           </Markdown>
         </div>
 
-        {safeRankings[activeTab].parsed_ranking &&
-         safeRankings[activeTab].parsed_ranking.length > 0 && (
+        {safeRankings[activeIndex].parsed_ranking &&
+         safeRankings[activeIndex].parsed_ranking.length > 0 && (
           <div className="parsed-ranking">
             <strong>Extracted Ranking:</strong>
             <ol>
-              {safeRankings[activeTab].parsed_ranking.map((label, i) => (
+              {safeRankings[activeIndex].parsed_ranking.map((label, i) => (
                 <li key={i}>
                   {labelToModel && labelToModel[label]
                     ? formatModelName(labelToModel[label])

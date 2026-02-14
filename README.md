@@ -14,90 +14,94 @@ In a bit more detail, here is what happens when you submit a query:
 
 This project was 99% vibe coded as a fun Saturday hack because I wanted to explore and evaluate a number of LLMs side by side in the process of [reading books together with LLMs](https://x.com/karpathy/status/1990577951671509438). It's nice and useful to see multiple responses side by side, and also the cross-opinions of all LLMs on each other's outputs. I'm not going to support it in any way, it's provided here as is for other people's inspiration and I don't intend to improve it. Code is ephemeral now and libraries are over, ask your LLM to change it in whatever way you like.
 
-## Setup
+## Purpose of This Fork
 
-### 1. Install Dependencies
+This fork focuses on practical local + hybrid deployments:
 
-The project uses [uv](https://docs.astral.sh/uv/) for project management.
+- Self-contained Docker images for local model execution without requiring external runtime dependencies like Ollama (while still supporting Ollama if you want it).
+- Iterative, multi-turn conversations so each response can use prior chat context.
+- Frontend improvements including conversation deletion, markdown rendering, and LaTeX support.
+- Per-conversation council configuration so every new chat can use a different council/Chairman arrangement.
 
-**Backend:**
-```bash
-uv sync
-```
+## Setup (Docker Default)
 
-**Frontend:**
-```bash
-cd frontend
-npm install
-cd ..
-```
+### 1. Create `.env`
 
-### 2. Configure API Key
-
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (details in the Environment Variables section below):
 
 ```bash
 OPENROUTER_API_KEY=sk-or-v1-...
+COUNCIL_MODELS=openai/gpt-5.2,google/gemini-3-pro-preview,anthropic/claude-sonnet-4.5,x-ai/grok-4
+CHAIRMAN_MODEL=google/gemini-3-pro-preview
+OLLAMA_API_URL=http://host.docker.internal:11434
+MODEL_CACHE=/tmp/ramalama
 ```
 
-Get your API key at [openrouter.ai](https://openrouter.ai/). Make sure to purchase the credits you need, or sign up for automatic top up.
+### 2. Run with Docker Compose in `/docker`
 
-### 3. Configure Models (Optional)
-
-Edit `backend/config.py` to customize the council:
-
-```python
-COUNCIL_MODELS = [
-    "openai/gpt-5.1",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-sonnet-4.5",
-    "x-ai/grok-4",
-]
-
-CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
-```
-
-## Running the Application
-
-### Option 1: Docker Compose (recommended)
-
-Build and start both services:
 ```bash
-docker compose up --build
+docker compose -f docker/docker-compose.yml up -d
 ```
 
-What it does:
-- Backend on http://localhost:8001 with data persisted to a Docker volume.
-- Frontend served on http://localhost:5173 via nginx.
-- Mounts the host Docker socket so Python SDKs can start sibling containers (e.g., local LLMs).
-- Sets `host.docker.internal` for Linux so the backend can reach host services like Ollama.
+This launches:
 
-Environment variables read from `.env` (see examples below).
+- Backend on `http://localhost:8001`
+- Frontend on `http://localhost:5173`
+- Persistent conversation storage in a named Docker volume
+- Docker socket passthrough for `local/...` model execution
 
-### Option 2: Use the start script
+Stop the stack with:
+
 ```bash
-./start.sh
+docker compose -f docker/docker-compose.yml down
 ```
 
-### Option 3: Run manually
+## Council Member Types
 
-Terminal 1 (Backend):
+You can define models in `COUNCIL_MODELS`, `CHAIRMAN_MODEL`, or the per-chat council configurator.
+
+- `local/<model-name>` uses your local Docker/Podman socket to run models via Ramalama transports (`hf://`, `ollama://`, `file://`, etc.). Transport details: https://github.com/containers/ramalama?tab=readme-ov-file#transports
+- `ollama/<model>` uses an Ollama model served from `OLLAMA_API_URL`.
+- Any other model id defaults to OpenRouter routing.
+
+Examples:
+
+- `local/gpt-oss:20b`
+- `local/hf://ggml-org/SmolVLM-Instruct-GGUF`
+- `ollama/llama3.1`
+- `openai/gpt-5.2`
+
+## Build and push images to GHCR
+
+Use the root `Makefile` to build and push both images with a single command.
+The build uses `docker buildx` for `linux/amd64` and `linux/arm64`, and tags each image with:
+- `latest`
+- the backend version from `pyproject.toml` (for example `0.1.0`)
+
 ```bash
-uv run python -m backend.main
+# Login once per machine/session
+GITHUB_TOKEN=ghp_xxx make ghcr-login GHCR_USER=<your-github-username>
+
+# Build and push both images
+make build GHCR_OWNER=<owner-or-org>
+
+# Optional overrides
+make build GHCR_OWNER=<owner-or-org> \
+  PLATFORMS="linux/amd64 linux/arm64" \
+  IMAGE_TAGS="latest 0.1.0"
 ```
 
-Terminal 2 (Frontend):
-```bash
-cd frontend
-npm run dev
-```
+`GITHUB_TOKEN` should be a PAT with at least `write:packages` and `read:packages` for GHCR (`repo` is also needed for private repos).
+If a GHCR package already exists and is not linked, connect it once in package settings (`Package settings` -> `Connect repository`).
 
-Then open http://localhost:5173 in your browser.
+By default this publishes:
+- Backend: `ghcr.io/<owner>/<repo>:latest` and `ghcr.io/<owner>/<repo>:<backend-version>`
+- Frontend: `ghcr.io/<owner>/<repo>-web:latest` and `ghcr.io/<owner>/<repo>-web:<backend-version>`
 
 ## Tech Stack
 
-- **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API
-- **Frontend:** React + Vite, react-markdown for rendering
+- **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API, Ramalama SDK
+- **Frontend:** React + Vite, react-markdown + KaTeX rendering
 - **Storage:** JSON files in `data/conversations/`
 - **Package Management:** uv for Python, npm for JavaScript
 
@@ -105,20 +109,26 @@ Then open http://localhost:5173 in your browser.
 
 Create a `.env` file in the project root:
 ```bash
-OPENROUTER_API_KEY=sk-or-v1-...
-# Optional overrides
-COUNCIL_MODELS=openai/gpt-5.1,google/gemini-3-pro-preview,anthropic/claude-sonnet-4.5,x-ai/grok-4
-CHAIRMAN_MODEL=google/gemini-3-pro-preview
+OPENROUTER_API_KEY=sk-or-v1-...   # Required for OpenRouter model ids
 OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
-DATA_DIR=data/conversations
-# Local LLMs via Ollama (HTTP API); leave unset to disable
 OLLAMA_API_URL=http://host.docker.internal:11434
-# Optional Ramalama SDK override (auto-detected by default)
+COUNCIL_MODELS=openai/gpt-5.2,google/gemini-3-pro-preview,anthropic/claude-sonnet-4.5,x-ai/grok-4
+CHAIRMAN_MODEL=google/gemini-3-pro-preview
+DATA_DIR=data/conversations
+MODEL_CACHE=/tmp/ramalama
+
+# Optional Ramalama SDK networking overrides
 # RAMALAMA_SDK_CONNECT_HOST=host.docker.internal
-# Override CORS origins (comma-separated)
+# RAMALAMA_SDK_BIND_HOST=0.0.0.0
+
+# Override CORS origins (comma-separated or "*" for all)
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
-### Using local Ollama models
-- Add models like `ollama/llama3` to `COUNCIL_MODELS` or `CHAIRMAN_MODEL`.
-- Ensure Ollama is running on the host (default port 11434). The compose file injects `host.docker.internal` for Linux and mounts `/var/run/docker.sock` so SDKs that spin containers can use the host daemon (no DinD needed).
+### Variable notes
+
+- `OPENROUTER_API_KEY` is only needed when your model list includes OpenRouter model IDs.
+- `OLLAMA_API_URL` is only needed for `ollama/<model>`.
+- `MODEL_CACHE` is used by the Docker compose file to mount model cache storage for local runtime pulls.
+- `COUNCIL_MODELS` and `CHAIRMAN_MODEL` are defaults; you can override them per conversation in the UI.
+

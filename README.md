@@ -23,21 +23,7 @@ This fork focuses on practical local + hybrid deployments:
 - Frontend improvements including conversation deletion, markdown rendering, and LaTeX support.
 - Per-conversation council configuration so every new chat can use a different council/Chairman arrangement.
 
-## Setup (Docker Default)
-
-### 1. Create `.env`
-
-Create a `.env` file in the project root (details in the Environment Variables section below):
-
-```bash
-OPENROUTER_API_KEY=sk-or-v1-...
-COUNCIL_MODELS=openai/gpt-5.2,google/gemini-3-pro-preview,anthropic/claude-sonnet-4.5,x-ai/grok-4
-CHAIRMAN_MODEL=google/gemini-3-pro-preview
-OLLAMA_API_URL=http://host.docker.internal:11434
-MODEL_CACHE=/tmp/ramalama
-```
-
-### 2. Run with Docker Compose in `/docker`
+## Setup
 
 ```yaml
 services:
@@ -73,7 +59,6 @@ This launches:
 - Frontend on `http://localhost:5173`
 - Persistent conversation storage in a named Docker volume
 - Docker socket passthrough for `local/...` model execution
-
 
 ### Variable notes
 

@@ -1,4 +1,6 @@
 FROM python:3.11-slim AS backend
+ARG OCI_IMAGE_SOURCE=https://github.com/ieaves/llm-council
+LABEL org.opencontainers.image.source=$OCI_IMAGE_SOURCE
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

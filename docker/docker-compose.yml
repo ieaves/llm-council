@@ -1,0 +1,27 @@
+name: llm-council
+
+services:
+  backend:
+    image: ghcr.io/ieaves/llm-council
+    environment:
+      DATA_DIR: /app/data/conversations
+      OLLAMA_API_URL: ${OLLAMA_API_URL:-http://host.docker.internal:8080} # Only needed if you want to use Ollama
+      RAMALAMA_STORE: ${MODEL_CACHE:-/tmp/ramalama} # If you want to run local models without Ollama
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY} # If you want to run cloud models
+    security_opt:
+      - label=disable
+    volumes:
+      - data:/app/data/conversations
+      - /var/run/docker.sock:/var/run/docker.sock # If you want to run local models without Ollama
+      #- /run/podman/podman.sock:/var/run/docker.sock # If you use podman and want to run local models without Ollama
+      - ${MODEL_CACHE:-/tmp/ramalama}:${MODEL_CACHE:-/tmp/ramalama} # If you want to run local models without Ollama
+    ports:
+      - "8001:8001"
+
+  frontend:
+    image: ghcr.io/ieaves/llm-council-web
+    ports:
+      - "5173:80"
+
+volumes:
+  data:

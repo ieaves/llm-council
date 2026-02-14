@@ -10,6 +10,10 @@ ENV VITE_API_BASE=$VITE_API_BASE
 
 RUN npm run build
 
-FROM nginx:stable-alpine
+FROM nginx:stable-alpine AS runtime
+ARG OCI_IMAGE_SOURCE=https://github.com/ieaves/llm-council
+LABEL org.opencontainers.image.source=$OCI_IMAGE_SOURCE
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

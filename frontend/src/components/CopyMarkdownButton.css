@@ -1,0 +1,35 @@
+.copy-markdown-button {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  color: #444;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.copy-markdown-button:hover:not(:disabled) {
+  background: #f3f8ff;
+  border-color: #8fb7f1;
+  color: #2a5da8;
+}
+
+.copy-markdown-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.copy-markdown-button.copied {
+  background: #e8f7e8;
+  border-color: #9fd09f;
+  color: #2d7a2d;
+}
+
+.copy-markdown-button.error {
+  background: #fdeaea;
+  border-color: #efb2b2;
+  color: #a33b3b;
+}

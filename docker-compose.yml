@@ -1,7 +1,12 @@
 services:
   backend:
+    image: ${BACKEND_IMAGE:-llm-council-backend}:${IMAGE_TAG:-latest}
     build:
       context: .
+      dockerfile: Dockerfile
+      target: backend
+      args:
+        OCI_IMAGE_SOURCE: ${OCI_IMAGE_SOURCE:-https://github.com/ieaves/llm-council}
     env_file:
       - .env
     environment:
@@ -12,17 +17,21 @@ services:
       - label=disable
     volumes:
       - data:/app/data/conversations
-      #- /var/run/docker.sock:/var/run/docker.sock  # If you use docker and want to run local models without Ollama
-      - /run/podman/podman.sock:/var/run/docker.sock # If you use podman and want to run local models without Ollama
+      - /var/run/docker.sock:/var/run/docker.sock  # If you use docker and want to run local models without Ollama
+      #- /run/podman/podman.sock:/var/run/docker.sock # If you use podman and want to run local models without Ollama
       - ${MODEL_CACHE}:${MODEL_CACHE}  # If you want to run local models without Ollama
     ports:
       - "8001:8001"
 
   frontend:
+    image: ${FRONTEND_IMAGE:-llm-council-frontend}:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime
       args:
-        VITE_API_BASE: http://localhost:8001
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8001}
+        OCI_IMAGE_SOURCE: ${OCI_IMAGE_SOURCE:-https://github.com/ieaves/llm-council}
     depends_on:
       - backend
     ports:

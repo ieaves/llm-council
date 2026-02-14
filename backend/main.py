@@ -1,6 +1,6 @@
 """FastAPI backend for LLM Council."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -11,14 +11,37 @@ import asyncio
 
 from . import storage
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
+from .config import (
+    OLLAMA_API_URL,
+    CORS_ALLOW_ORIGINS,
+    COUNCIL_MODELS,
+    CHAIRMAN_MODEL,
+)
+from .docker_utils import has_docker_socket_access
+
+
+
+def conversation_history_text(messages: List[Dict[str, Any]]) -> str:
+    """Render a lightweight text history for prompts."""
+    lines = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "user":
+            lines.append(f"User: {msg.get('content', '')}")
+        elif role == "assistant":
+            stage3 = msg.get("stage3", {})
+            final = stage3.get("response") if isinstance(stage3, dict) else None
+            if final:
+                lines.append(f"Council: {final}")
+    return "\n".join(lines)
 
 app = FastAPI(title="LLM Council API")
 
 # Enable CORS for local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
-    allow_credentials=True,
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=CORS_ALLOW_ORIGINS != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -26,7 +49,8 @@ app.add_middleware(
 
 class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
-    pass
+    council_models: list[str] | None = None
+    chairman_model: str | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -40,6 +64,8 @@ class ConversationMetadata(BaseModel):
     created_at: str
     title: str
     message_count: int
+    council_models: list[str] | None = None
+    chairman_model: str | None = None
 
 
 class Conversation(BaseModel):
@@ -48,12 +74,28 @@ class Conversation(BaseModel):
     created_at: str
     title: str
     messages: List[Dict[str, Any]]
+    council_models: list[str] | None = None
+    chairman_model: str | None = None
 
 
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"status": "ok", "service": "LLM Council API"}
+    return {
+        "status": "ok",
+        "service": "LLM Council API",
+        "ollama_api_url": OLLAMA_API_URL,
+        "docker_socket_access": has_docker_socket_access(),
+    }
+
+
+@app.get("/api/models")
+async def list_models():
+    """List available council models and default chairman."""
+    return {
+        "council_models": COUNCIL_MODELS,
+        "chairman_model": CHAIRMAN_MODEL,
+    }
 
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
@@ -66,7 +108,14 @@ async def list_conversations():
 async def create_conversation(request: CreateConversationRequest):
     """Create a new conversation."""
     conversation_id = str(uuid.uuid4())
-    conversation = storage.create_conversation(conversation_id)
+    if request.council_models is not None and len(request.council_models) == 0:
+        raise HTTPException(status_code=400, detail="council_models cannot be empty")
+
+    conversation = storage.create_conversation(
+        conversation_id,
+        council_models=request.council_models,
+        chairman_model=request.chairman_model,
+    )
     return conversation
 
 
@@ -77,6 +126,15 @@ async def get_conversation(conversation_id: str):
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
+
+
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    """Delete a conversation."""
+    deleted = storage.delete_conversation(conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "deleted", "id": conversation_id}
 
 
 @app.post("/api/conversations/{conversation_id}/message")
@@ -101,9 +159,18 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         title = await generate_conversation_title(request.content)
         storage.update_conversation_title(conversation_id, title)
 
+    # Use per-conversation council configuration (falls back to defaults)
+    council_models = conversation.get("council_models")
+    chairman_model = conversation.get("chairman_model")
+
     # Run the 3-stage council process
+    history_text = conversation_history_text(conversation["messages"][:-1])
+
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-        request.content
+        request.content,
+        council_models=council_models,
+        chairman_model=chairman_model,
+        conversation_history=history_text,
     )
 
     # Add assistant message with all stages
@@ -124,7 +191,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 
 
 @app.post("/api/conversations/{conversation_id}/message/stream")
-async def send_message_stream(conversation_id: str, request: SendMessageRequest):
+async def send_message_stream(conversation_id: str, request: SendMessageRequest, http_request: Request):
     """
     Send a message and stream the 3-stage council process.
     Returns Server-Sent Events as each stage completes.
@@ -137,8 +204,16 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
+    async def ensure_client_connected():
+        """Raise CancelledError if the client has disconnected."""
+        if await http_request.is_disconnected():
+            raise asyncio.CancelledError("Client disconnected")
+
     async def event_generator():
         try:
+            # Bail out early if the client already disconnected
+            await ensure_client_connected()
+
             # Add user message
             storage.add_user_message(conversation_id, request.content)
 
@@ -148,19 +223,96 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
 
             # Stage 1: Collect responses
+            await ensure_client_connected()
             yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
-            stage1_results = await stage1_collect_responses(request.content)
+            print(f"[stream] stage1_start conversation={conversation_id} question={request.content!r}")
+
+            stage1_progress_queue: asyncio.Queue = asyncio.Queue()
+
+            async def stage1_progress(model: str, response):
+                await ensure_client_connected()
+                status = "ok" if response is not None else "error"
+                print(f"[stream] stage1_progress model={model} status={status}")
+                await stage1_progress_queue.put({
+                    "type": "stage1_progress",
+                    "model": model,
+                    "status": status,
+                    "response": response.get("content") if response else None,
+                })
+
+            history_text = conversation_history_text(conversation["messages"][:-1])
+
+            stage1_task = asyncio.create_task(stage1_collect_responses(
+                request.content,
+                council_models=conversation.get("council_models"),
+                conversation_history=history_text,
+                on_progress=stage1_progress
+            ))
+
+            while True:
+                if stage1_task.done() and stage1_progress_queue.empty():
+                    break
+                try:
+                    event = await asyncio.wait_for(stage1_progress_queue.get(), timeout=0.25)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    await ensure_client_connected()
+                    continue
+
+            stage1_results = await stage1_task
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+            print(f"[stream] stage1_complete conversation={conversation_id} count={len(stage1_results)}")
 
             # Stage 2: Collect rankings
+            await ensure_client_connected()
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results)
+            print(f"[stream] stage2_start conversation={conversation_id}")
+
+            stage2_progress_queue: asyncio.Queue = asyncio.Queue()
+
+            async def stage2_progress(model: str, response):
+                await ensure_client_connected()
+                status = "ok" if response is not None else "error"
+                print(f"[stream] stage2_progress model={model} status={status}")
+                await stage2_progress_queue.put({
+                    "type": "stage2_progress",
+                    "model": model,
+                    "status": status,
+                    "ranking": response.get("content") if response else None,
+                })
+
+            stage2_task = asyncio.create_task(stage2_collect_rankings(
+                request.content,
+                stage1_results,
+                council_models=conversation.get("council_models"),
+                on_progress=stage2_progress
+            ))
+
+            while True:
+                if stage2_task.done() and stage2_progress_queue.empty():
+                    break
+                try:
+                    event = await asyncio.wait_for(stage2_progress_queue.get(), timeout=0.25)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    await ensure_client_connected()
+                    continue
+
+            stage2_results, label_to_model = await stage2_task
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
             yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+            print(f"[stream] stage2_complete conversation={conversation_id} count={len(stage2_results)}")
 
             # Stage 3: Synthesize final answer
+            await ensure_client_connected()
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results)
+            stage3_result = await stage3_synthesize_final(
+                request.content,
+                stage1_results,
+                stage2_results,
+                chairman_model=conversation.get("chairman_model"),
+                conversation_history=history_text,
+            )
             yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started
@@ -170,6 +322,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
             # Save complete assistant message
+            await ensure_client_connected()
             storage.add_assistant_message(
                 conversation_id,
                 stage1_results,
@@ -180,6 +333,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Send completion event
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 
+        except asyncio.CancelledError:
+            # Client stopped the stream; exit quietly
+            return
         except Exception as e:
             # Send error event
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

@@ -59,12 +59,27 @@ CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
 
 ## Running the Application
 
-**Option 1: Use the start script**
+### Option 1: Docker Compose (recommended)
+
+Build and start both services:
+```bash
+docker compose up --build
+```
+
+What it does:
+- Backend on http://localhost:8001 with data persisted to a Docker volume.
+- Frontend served on http://localhost:5173 via nginx.
+- Mounts the host Docker socket so Python SDKs can start sibling containers (e.g., local LLMs).
+- Sets `host.docker.internal` for Linux so the backend can reach host services like Ollama.
+
+Environment variables read from `.env` (see examples below).
+
+### Option 2: Use the start script
 ```bash
 ./start.sh
 ```
 
-**Option 2: Run manually**
+### Option 3: Run manually
 
 Terminal 1 (Backend):
 ```bash
@@ -85,3 +100,25 @@ Then open http://localhost:5173 in your browser.
 - **Frontend:** React + Vite, react-markdown for rendering
 - **Storage:** JSON files in `data/conversations/`
 - **Package Management:** uv for Python, npm for JavaScript
+
+## Environment variables
+
+Create a `.env` file in the project root:
+```bash
+OPENROUTER_API_KEY=sk-or-v1-...
+# Optional overrides
+COUNCIL_MODELS=openai/gpt-5.1,google/gemini-3-pro-preview,anthropic/claude-sonnet-4.5,x-ai/grok-4
+CHAIRMAN_MODEL=google/gemini-3-pro-preview
+OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
+DATA_DIR=data/conversations
+# Local LLMs via Ollama (HTTP API); leave unset to disable
+OLLAMA_API_URL=http://host.docker.internal:11434
+# Optional Ramalama SDK override (auto-detected by default)
+# RAMALAMA_SDK_CONNECT_HOST=host.docker.internal
+# Override CORS origins (comma-separated)
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+### Using local Ollama models
+- Add models like `ollama/llama3` to `COUNCIL_MODELS` or `CHAIRMAN_MODEL`.
+- Ensure Ollama is running on the host (default port 11434). The compose file injects `host.docker.internal` for Linux and mounts `/var/run/docker.sock` so SDKs that spin containers can use the host daemon (no DinD needed).

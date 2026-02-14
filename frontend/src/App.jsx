@@ -1,18 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
+import CouncilConfigurator from './components/CouncilConfigurator';
 import { api } from './api';
 import './App.css';
+
+const DEBUG_EVENTS = import.meta.env.VITE_DEBUG_EVENTS === 'true';
 
 function App() {
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [defaultModels, setDefaultModels] = useState([]);
+  const [defaultChairman, setDefaultChairman] = useState('');
+  const [showConfigurator, setShowConfigurator] = useState(false);
+  const [configuratorKey, setConfiguratorKey] = useState(0);
+  const abortControllerRef = useRef(null);
 
   // Load conversations on mount
   useEffect(() => {
     loadConversations();
+    loadModels();
   }, []);
 
   // Load conversation details when selected
@@ -26,8 +35,25 @@ function App() {
     try {
       const convs = await api.listConversations();
       setConversations(convs);
+      // If current conversation was deleted externally, clear it
+      if (currentConversationId && !convs.find((c) => c.id === currentConversationId)) {
+        setCurrentConversationId(null);
+        setCurrentConversation(null);
+      }
     } catch (error) {
       console.error('Failed to load conversations:', error);
+    }
+  };
+
+  const loadModels = async () => {
+    try {
+      const models = await api.listModels();
+      setDefaultModels(models.council_models || []);
+      setDefaultChairman(models.chairman_model || '');
+      return models;
+    } catch (error) {
+      console.error('Failed to load models:', error);
+      return null;
     }
   };
 
@@ -41,20 +67,27 @@ function App() {
   };
 
   const handleNewConversation = async () => {
-    try {
-      const newConv = await api.createConversation();
-      setConversations([
-        { id: newConv.id, created_at: newConv.created_at, message_count: 0 },
-        ...conversations,
-      ]);
-      setCurrentConversationId(newConv.id);
-    } catch (error) {
-      console.error('Failed to create conversation:', error);
-    }
+    // Ensure defaults are loaded before showing the configurator
+    await loadModels();
+    setConfiguratorKey((k) => k + 1); // force fresh state each open
+    setShowConfigurator(true);
   };
 
   const handleSelectConversation = (id) => {
     setCurrentConversationId(id);
+  };
+
+  const handleDeleteConversation = async (id) => {
+    try {
+      await api.deleteConversation(id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (id === currentConversationId) {
+        setCurrentConversationId(null);
+        setCurrentConversation(null);
+      }
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+    }
   };
 
   const handleSendMessage = async (content) => {
@@ -72,8 +105,8 @@ function App() {
       // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
         role: 'assistant',
-        stage1: null,
-        stage2: null,
+        stage1: [],
+        stage2: [],
         stage3: null,
         metadata: null,
         loading: {
@@ -90,13 +123,41 @@ function App() {
       }));
 
       // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
-        switch (eventType) {
-          case 'stage1_start':
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      await api.sendMessageStream(
+        currentConversationId,
+        content,
+        (eventType, event) => {
+          if (DEBUG_EVENTS) {
+            // Helpful debugging in the browser console
+            // eslint-disable-next-line no-console
+            console.log('[sse]', eventType, event);
+          }
+          switch (eventType) {
+            case 'stage1_start':
+              setCurrentConversation((prev) => {
+                const messages = [...prev.messages];
+                const lastMsg = messages[messages.length - 1];
+                lastMsg.loading.stage1 = true;
+                return { ...prev, messages };
+              });
+              break;
+
+          case 'stage1_progress':
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage1 = true;
+              const existing = lastMsg.stage1 || [];
+              const filtered = existing.filter((resp) => resp.model !== event.model);
+              if (event.response !== undefined) {
+                filtered.push({
+                  model: event.model,
+                  response: event.response || '',
+                });
+              }
+              lastMsg.stage1 = filtered;
               return { ...prev, messages };
             });
             break;
@@ -116,6 +177,24 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage2 = true;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage2_progress':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              const existing = lastMsg.stage2 || [];
+              const filtered = existing.filter((resp) => resp.model !== event.model);
+              if (event.ranking !== undefined) {
+                filtered.push({
+                  model: event.model,
+                  ranking: event.ranking || '',
+                  parsed_ranking: null,
+                });
+              }
+              lastMsg.stage2 = filtered;
               return { ...prev, messages };
             });
             break;
@@ -168,17 +247,54 @@ function App() {
 
           default:
             console.log('Unknown event type:', eventType);
-        }
-      });
+          }
+        },
+        controller.signal
+      );
+
+      abortControllerRef.current = null;
     } catch (error) {
-      console.error('Failed to send message:', error);
-      // Remove optimistic messages on error
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: prev.messages.slice(0, -2),
-      }));
-      setIsLoading(false);
+      if (error.name === 'AbortError') {
+        console.warn('Council run aborted by user');
+        setIsLoading(false);
+      } else {
+        console.error('Failed to send message:', error);
+        // Remove optimistic messages on error
+        setCurrentConversation((prev) => ({
+          ...prev,
+          messages: prev.messages.slice(0, -2),
+        }));
+        setIsLoading(false);
+      }
     }
+  };
+
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+    // Remove the in-flight assistant placeholder
+    setCurrentConversation((prev) => {
+      if (!prev || !prev.messages || prev.messages.length === 0) return prev;
+      const messages = [...prev.messages];
+      const last = messages[messages.length - 1];
+      if (last?.role === 'assistant' && last.loading) {
+        const hasData = last.stage1 || last.stage2 || last.stage3;
+        if (hasData) {
+          last.loading = {
+            stage1: false,
+            stage2: false,
+            stage3: false,
+          };
+          messages[messages.length - 1] = last;
+        } else {
+          messages.pop();
+        }
+      }
+      return { ...prev, messages };
+    });
   };
 
   return (
@@ -188,11 +304,42 @@ function App() {
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        onDeleteConversation={handleDeleteConversation}
       />
+      {showConfigurator && (
+        <CouncilConfigurator
+          key={configuratorKey}
+          defaultModels={defaultModels}
+          defaultChairman={defaultChairman}
+          onCancel={() => setShowConfigurator(false)}
+          onCreate={async ({ models, chairman }) => {
+            try {
+              const newConv = await api.createConversation(models, chairman);
+              setConversations((prev) => [
+                {
+                  id: newConv.id,
+                  created_at: newConv.created_at,
+                  title: newConv.title,
+                  message_count: 0,
+                  council_models: newConv.council_models,
+                  chairman_model: newConv.chairman_model,
+                },
+                ...prev,
+              ]);
+              setCurrentConversationId(newConv.id);
+            } catch (error) {
+              console.error('Failed to create conversation:', error);
+            } finally {
+              setShowConfigurator(false);
+            }
+          }}
+        />
+      )}
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
+        onStop={handleStop}
       />
     </div>
   );

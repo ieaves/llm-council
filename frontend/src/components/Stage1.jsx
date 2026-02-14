@@ -1,34 +1,52 @@
-import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { useEffect, useState } from 'react';
+import Markdown from './Markdown';
+import { formatModelName } from '../utils/modelName';
 import './Stage1.css';
 
-export default function Stage1({ responses }) {
+export default function Stage1({ responses, totalCount }) {
   const [activeTab, setActiveTab] = useState(0);
+  const safeResponses = responses || [];
+  const responded = safeResponses.length;
 
-  if (!responses || responses.length === 0) {
+  useEffect(() => {
+    if (activeTab >= safeResponses.length) {
+      setActiveTab(Math.max(0, safeResponses.length - 1));
+    }
+  }, [safeResponses.length, activeTab]);
+
+  if (safeResponses.length === 0) {
     return null;
   }
 
   return (
     <div className="stage stage1">
       <h3 className="stage-title">Stage 1: Individual Responses</h3>
+      <div className="stage-meta">
+        <span className="count">
+          {responded}
+          {totalCount ? ` / ${totalCount}` : ''} responded
+        </span>
+        {totalCount && responded < totalCount && (
+          <span className="pending">Waiting on {totalCount - responded} more...</span>
+        )}
+      </div>
 
       <div className="tabs">
-        {responses.map((resp, index) => (
+        {safeResponses.map((resp, index) => (
           <button
             key={index}
             className={`tab ${activeTab === index ? 'active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
-            {resp.model.split('/')[1] || resp.model}
+            {formatModelName(resp.model)}
           </button>
         ))}
       </div>
 
       <div className="tab-content">
-        <div className="model-name">{responses[activeTab].model}</div>
+        <div className="model-name">{formatModelName(safeResponses[activeTab].model)}</div>
         <div className="response-text markdown-content">
-          <ReactMarkdown>{responses[activeTab].response}</ReactMarkdown>
+          <Markdown>{safeResponses[activeTab].response}</Markdown>
         </div>
       </div>
     </div>

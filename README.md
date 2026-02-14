@@ -39,8 +39,32 @@ MODEL_CACHE=/tmp/ramalama
 
 ### 2. Run with Docker Compose in `/docker`
 
-```bash
-docker compose -f docker/docker-compose.yml up -d
+```yaml
+services:
+  backend:
+    image: ghcr.io/ieaves/llm-council
+    environment:
+      DATA_DIR: /app/data/conversations
+      OLLAMA_API_URL: ${OLLAMA_API_URL} # Only needed if you want to use Ollama
+      RAMALAMA_STORE: ${MODEL_CACHE} # If you want to run local models without Ollama
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY} # If you want to run cloud models
+    security_opt:
+      - label=disable
+    volumes:
+      - data:/app/data/conversations
+      - /var/run/docker.sock:/var/run/docker.sock # If you want to run local models without Ollama
+      #- /run/podman/podman.sock:/var/run/docker.sock # If you use podman and want to run local models without Ollama
+      - ${MODEL_CACHE}:${MODEL_CACHE} # If you want to run local models without Ollama
+    ports:
+      - "8001:8001"
+
+  frontend:
+    image: ghcr.io/ieaves/llm-council-web
+    ports:
+      - "5173:80"
+
+volumes:
+  data:
 ```
 
 This launches:
@@ -50,11 +74,13 @@ This launches:
 - Persistent conversation storage in a named Docker volume
 - Docker socket passthrough for `local/...` model execution
 
-Stop the stack with:
 
-```bash
-docker compose -f docker/docker-compose.yml down
-```
+### Variable notes
+
+- `OPENROUTER_API_KEY` is only needed when your model list includes OpenRouter model IDs.
+- `OLLAMA_API_URL` is only needed for `ollama/<model>`.
+- `MODEL_CACHE` is used by the Docker compose file to mount model cache storage for local runtime pulls.
+- `COUNCIL_MODELS` and `CHAIRMAN_MODEL` are defaults; you can override them per conversation in the UI.
 
 ## Council Member Types
 
@@ -70,65 +96,3 @@ Examples:
 - `local/hf://ggml-org/SmolVLM-Instruct-GGUF`
 - `ollama/llama3.1`
 - `openai/gpt-5.2`
-
-## Build and push images to GHCR
-
-Use the root `Makefile` to build and push both images with a single command.
-The build uses `docker buildx` for `linux/amd64` and `linux/arm64`, and tags each image with:
-- `latest`
-- the backend version from `pyproject.toml` (for example `0.1.0`)
-
-```bash
-# Login once per machine/session
-GITHUB_TOKEN=ghp_xxx make ghcr-login GHCR_USER=<your-github-username>
-
-# Build and push both images
-make build GHCR_OWNER=<owner-or-org>
-
-# Optional overrides
-make build GHCR_OWNER=<owner-or-org> \
-  PLATFORMS="linux/amd64 linux/arm64" \
-  IMAGE_TAGS="latest 0.1.0"
-```
-
-`GITHUB_TOKEN` should be a PAT with at least `write:packages` and `read:packages` for GHCR (`repo` is also needed for private repos).
-If a GHCR package already exists and is not linked, connect it once in package settings (`Package settings` -> `Connect repository`).
-
-By default this publishes:
-- Backend: `ghcr.io/<owner>/<repo>:latest` and `ghcr.io/<owner>/<repo>:<backend-version>`
-- Frontend: `ghcr.io/<owner>/<repo>-web:latest` and `ghcr.io/<owner>/<repo>-web:<backend-version>`
-
-## Tech Stack
-
-- **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API, Ramalama SDK
-- **Frontend:** React + Vite, react-markdown + KaTeX rendering
-- **Storage:** JSON files in `data/conversations/`
-- **Package Management:** uv for Python, npm for JavaScript
-
-## Environment variables
-
-Create a `.env` file in the project root:
-```bash
-OPENROUTER_API_KEY=sk-or-v1-...   # Required for OpenRouter model ids
-OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
-OLLAMA_API_URL=http://host.docker.internal:11434
-COUNCIL_MODELS=openai/gpt-5.2,google/gemini-3-pro-preview,anthropic/claude-sonnet-4.5,x-ai/grok-4
-CHAIRMAN_MODEL=google/gemini-3-pro-preview
-DATA_DIR=data/conversations
-MODEL_CACHE=/tmp/ramalama
-
-# Optional Ramalama SDK networking overrides
-# RAMALAMA_SDK_CONNECT_HOST=host.docker.internal
-# RAMALAMA_SDK_BIND_HOST=0.0.0.0
-
-# Override CORS origins (comma-separated or "*" for all)
-CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-```
-
-### Variable notes
-
-- `OPENROUTER_API_KEY` is only needed when your model list includes OpenRouter model IDs.
-- `OLLAMA_API_URL` is only needed for `ollama/<model>`.
-- `MODEL_CACHE` is used by the Docker compose file to mount model cache storage for local runtime pulls.
-- `COUNCIL_MODELS` and `CHAIRMAN_MODEL` are defaults; you can override them per conversation in the UI.
-
